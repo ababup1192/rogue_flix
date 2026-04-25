@@ -28,8 +28,10 @@ mod LwjglLayer {
         "out vec2 TexCoords;\n" +
         "uniform mat4 model;\n" +
         "uniform mat4 projection;\n" +
+        "uniform vec2 uvOffset;\n" +
+        "uniform vec2 uvScale;\n" +
         "void main() {\n" +
-        "    TexCoords = vertex.zw;\n" +
+        "    TexCoords = vertex.zw * uvScale + uvOffset;\n" +
         "    gl_Position = projection * model * vec4(vertex.xy, 0.0, 1.0);\n" +
         "}\n"
 
@@ -103,8 +105,8 @@ mod LwjglLayer {
             GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, format, w.get(0), h.get(0), 0, format, GL11.GL_UNSIGNED_BYTE, data);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_REPEAT);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
             STBImage.stbi_image_free(data);
             discard MemoryStack.stackPop();
             textureID
@@ -166,7 +168,7 @@ mod LwjglLayer {
         let loc = GL20.glGetUniformLocation(shader, "projection");
         GL20.glUniformMatrix4fv(loc, false, proj)
 
-    def drawSprite(shader: Int32, texture: Int32, vao: Int32, pos: Vec2D.Vec2, size: Vec2D.Vec2, color: Game.Vec3): Unit \ IO =
+    def drawSprite(shader: Int32, texture: Int32, vao: Int32, pos: Vec2D.Vec2, size: Vec2D.Vec2, color: Game.Vec3, uvOff: Vec2D.Vec2, uvSc: Vec2D.Vec2): Unit \ IO =
         GL20.glUseProgram(shader);
 
         let model = Array#{
@@ -181,6 +183,11 @@ mod LwjglLayer {
 
         let colorLoc = GL20.glGetUniformLocation(shader, "spriteColor");
         GL20.glUniform3f(colorLoc, color#r, color#g, color#b);
+
+        let uvOffsetLoc = GL20.glGetUniformLocation(shader, "uvOffset");
+        GL20.glUniform2f(uvOffsetLoc, uvOff#x, uvOff#y);
+        let uvScaleLoc = GL20.glGetUniformLocation(shader, "uvScale");
+        GL20.glUniform2f(uvScaleLoc, uvSc#x, uvSc#y);
 
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture);
@@ -200,7 +207,7 @@ mod LwjglLayer {
         let drawables = SceneTree.collectDrawables(scene, Vec2D.zero());
         List.forEach(match (spriteData, globalPos) -> {
             match Map.get(spriteData#texture, registry) {
-                case Some(texId) => drawSprite(shader, texId, vao, globalPos, spriteData#size, spriteData#color)
+                case Some(texId) => drawSprite(shader, texId, vao, globalPos, spriteData#size, spriteData#color, spriteData#uvOffset, spriteData#uvScale)
                 case None => ()
             }
         }, drawables)
@@ -222,7 +229,7 @@ mod LwjglLayer {
         GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_FORWARD_COMPAT, GL11.GL_TRUE);
         GLFW.glfwWindowHint(GLFW.GLFW_RESIZABLE, GL11.GL_FALSE);
 
-        let window = GLFW.glfwCreateWindow(Game.screenWidth(), Game.screenHeight(), "Breakout", MemoryUtil.NULL, MemoryUtil.NULL);
+        let window = GLFW.glfwCreateWindow(Game.screenWidth(), Game.screenHeight(), "Rogue", MemoryUtil.NULL, MemoryUtil.NULL);
         GLFW.glfwMakeContextCurrent(window);
         GLFW.glfwSwapInterval(1);
         discard GL.createCapabilities();
@@ -245,16 +252,12 @@ mod LwjglLayer {
         println("Loading textures...");
         let registry = loadTextureRegistry(Game.textureManifest());
 
-        println("Loading levels...");
-
         let timeHolder = Array#{System.nanoTime()} @ Static;
 
         let result = run { f() } with handler Game.Game {
             def getInitialState(_, k) = {
-                let state = run {
-                    Game.initGame(Game.screenWidth(), Game.screenHeight())
-                } with Fs.FileRead.runWithIO;
-                println("Game ready! Press ESC or close window to exit.");
+                let state = Game.initGame(Game.screenWidth(), Game.screenHeight());
+                println("Game ready!");
                 k(state)
             }
             def render(scene, k) = {

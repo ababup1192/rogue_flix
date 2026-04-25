@@ -1,8 +1,6 @@
-// Breakout - Faithful LearnOpenGL Recreation in Flix
+// Rogue — tile-based roguelike game in Flix
 
 def main(): Unit \ IO =
-    println("Breakout - LearnOpenGL Recreation");
-    discard run {
-        run { Game.startGame() } with LwjglLayer.withLwjgl
-    } with Math.Random.runWithIO;
+    println("Rogue");
+    discard run { Game.startGame() } with LwjglLayer.withLwjgl;
     println("Game ended.")

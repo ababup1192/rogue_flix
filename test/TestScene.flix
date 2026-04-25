@@ -1,10 +1,12 @@
 // Tests for SceneTree — coordinate accumulation, draw order, utilities, and engine
 
 use SceneTree.{collectDrawables,
-               node2D, sprite2D, collisionShape2D, kinematicBody2D, staticBody2D, rigidBody2D, area2D}
+               node2D, sprite2D, collisionShape2D, kinematicBody2D, staticBody2D, rigidBody2D, area2D,
+               raycast2DNode}
 
 def mkSpriteData(tex: String): SceneTree.SpriteData =
-    {size = {x = 10.0f32, y = 10.0f32}, color = {r = 1.0f32, g = 1.0f32, b = 1.0f32}, texture = tex, visible = true}
+    {size = {x = 10.0f32, y = 10.0f32}, color = {r = 1.0f32, g = 1.0f32, b = 1.0f32}, texture = tex, visible = true,
+     uvOffset = Vec2D.zero(), uvScale = Vec2D.one()}
 
 def mkPos(px: Float32, py: Float32): Vec2D.Vec2 =
     {x = px, y = py}
@@ -35,7 +37,8 @@ def testNestedPositionAccumulation(): Unit \ Assert =
 
 @Test
 def testInvisibleSpriteSkipped(): Unit \ Assert =
-    let sd = {size = {x = 10.0f32, y = 10.0f32}, color = {r = 1.0f32, g = 1.0f32, b = 1.0f32}, texture = "block", visible = false};
+    let sd = {size = {x = 10.0f32, y = 10.0f32}, color = {r = 1.0f32, g = 1.0f32, b = 1.0f32}, texture = "block", visible = false,
+              uvOffset = Vec2D.zero(), uvScale = Vec2D.one()};
     let node = sprite2D("Hidden", Vec2D.zero(), sd);
     let result = collectDrawables(node, {x = 0.0f32, y = 0.0f32});
     Assert.assertEq(expected = 0, List.length(result))
@@ -773,3 +776,298 @@ def testCheckShapeOverlapCircleCircleMiss(): Unit \ Assert =
         {x = 0.0f32, y = 0.0f32}, SceneTree.CollisionShapeData.CircleShape(10.0f32),
         {x = 100.0f32, y = 0.0f32}, SceneTree.CollisionShapeData.CircleShape(10.0f32));
     Assert.assertFalse(result)
+
+// --- Player Facing UV Tests ---
+
+@Test
+def testSetPlayerFacingChangesUV(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    // Initial facing is Down (row 0), uvOffset.y = 1.0
+    let drawablesInit = SceneTree.collectDrawables(scene, Vec2D.zero());
+    let initUvY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawablesInit);
+    Assert.assertEq(expected = Some(1.0f32), initUvY);
+    // Change facing to Right (row 2), uvOffset.y = 6/8 = 0.75
+    let rightScene = RogueScene.setPlayerFacing(SceneTree.Direction.Right, scene);
+    let drawablesRight = SceneTree.collectDrawables(rightScene, Vec2D.zero());
+    let rightUvY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawablesRight);
+    Assert.assertEq(expected = Some(6.0f32 / 8.0f32), rightUvY)
+
+@Test
+def testMovePlayerChangesFacingUV(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let state: Game.GameState = {
+        scene = scene,
+        playerGridX = 4, playerGridY = 4,
+        facing = SceneTree.Direction.Down,
+        currentPos = {x = 128.0f32, y = 128.0f32},
+        targetPos = {x = 128.0f32, y = 128.0f32}
+    };
+    let rightState = Game.movePlayer(SceneTree.Direction.Right, state);
+    let drawables = SceneTree.collectDrawables(rightState#scene, Vec2D.zero());
+    let uvOffY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawables);
+    // Right = row 2, uvOffset.y = 6/8 = 0.75
+    Assert.assertEq(expected = Some(6.0f32 / 8.0f32), uvOffY)
+
+@Test
+def testSetPlayerPositionPreservesUV(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    // Right = row 2, uvOffset.y = 6/8 = 0.75
+    let rightScene = RogueScene.setPlayerFacing(SceneTree.Direction.Right, scene);
+    let movedScene = RogueScene.setPlayerPosition({x = 160.0f32, y = 128.0f32}, rightScene);
+    let drawables = SceneTree.collectDrawables(movedScene, Vec2D.zero());
+    let uvOffY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawables);
+    Assert.assertEq(expected = Some(6.0f32 / 8.0f32), uvOffY)
+
+// ========================================================================
+// Raycast2D Tests
+// ========================================================================
+
+// --- rayIntersectRect ---
+
+@Test
+def testRayIntersectRectHitFromLeft(): Unit \ Assert =
+    // Ray at (0, 15) going right, rect at (10, 10) size (20, 20)
+    let result = SceneTree.rayIntersectRect(
+        {x = 0.0f32, y = 15.0f32}, {x = 1.0f32, y = 0.0f32},
+        {x = 10.0f32, y = 10.0f32}, {x = 20.0f32, y = 20.0f32});
+    Assert.assertTrue(not Option.isEmpty(result));
+    let t = Option.getWithDefault(0.0f32, result);
+    Assert.assertEq(expected = 10.0f32, t)
+
+@Test
+def testRayIntersectRectMiss(): Unit \ Assert =
+    // Ray at (0, 0) going right, rect at (10, 10) — ray passes above rect
+    let result = SceneTree.rayIntersectRect(
+        {x = 0.0f32, y = 0.0f32}, {x = 1.0f32, y = 0.0f32},
+        {x = 10.0f32, y = 10.0f32}, {x = 20.0f32, y = 20.0f32});
+    Assert.assertTrue(Option.isEmpty(result))
+
+@Test
+def testRayIntersectRectAxisParallelDown(): Unit \ Assert =
+    // Ray at (15, 0) going down, rect at (10, 10) size (20, 20)
+    let result = SceneTree.rayIntersectRect(
+        {x = 15.0f32, y = 0.0f32}, {x = 0.0f32, y = 1.0f32},
+        {x = 10.0f32, y = 10.0f32}, {x = 20.0f32, y = 20.0f32});
+    Assert.assertTrue(not Option.isEmpty(result));
+    let t = Option.getWithDefault(0.0f32, result);
+    Assert.assertEq(expected = 10.0f32, t)
+
+@Test
+def testRayIntersectRectAxisParallelMiss(): Unit \ Assert =
+    // Ray at (5, 0) going down, rect at (10, 10) — ray passes to left of rect
+    let result = SceneTree.rayIntersectRect(
+        {x = 5.0f32, y = 0.0f32}, {x = 0.0f32, y = 1.0f32},
+        {x = 10.0f32, y = 10.0f32}, {x = 20.0f32, y = 20.0f32});
+    Assert.assertTrue(Option.isEmpty(result))
+
+@Test
+def testRayIntersectRectBackwardMiss(): Unit \ Assert =
+    // Ray at (50, 15) going right, rect at (10, 10) — rect is behind ray
+    let result = SceneTree.rayIntersectRect(
+        {x = 50.0f32, y = 15.0f32}, {x = 1.0f32, y = 0.0f32},
+        {x = 10.0f32, y = 10.0f32}, {x = 20.0f32, y = 20.0f32});
+    Assert.assertTrue(Option.isEmpty(result))
+
+// --- raycast2D scene tree tests ---
+
+@Test
+def testRaycast2DHitsWall(): Unit \ Assert =
+    let wallSprite = sprite2D("WallSprite", Vec2D.zero(), mkSpriteData("wall"));
+    let wallShape = collisionShape2D("WallShape", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32}));
+    let wall = staticBody2D("Wall_5_4", mkPos(160.0f32, 128.0f32),
+        {isSolid = true, destroyed = false},
+        wallSprite :: wallShape :: Nil);
+    let walls = node2D("Walls", Vec2D.zero(), wall :: Nil);
+    let root = node2D("Root", Vec2D.zero(), walls :: Nil);
+    // Ray from center of tile (4,4) = (144, 144) going right
+    let hit = SceneTree.raycast2D(
+        {x = 144.0f32, y = 144.0f32}, {x = 1.0f32, y = 0.0f32},
+        32.0f32, root);
+    Assert.assertTrue(not Option.isEmpty(hit));
+    let hitName = hit |> Option.map(h -> h#name);
+    Assert.assertEq(expected = Some("Wall_5_4"), hitName);
+    let hitGroup = hit |> Option.map(h -> h#group);
+    Assert.assertEq(expected = Some("Walls"), hitGroup);
+    let hitSolid = hit |> Option.map(h -> h#isSolid);
+    Assert.assertEq(expected = Some(true), hitSolid)
+
+@Test
+def testRaycast2DHitsFloor(): Unit \ Assert =
+    let floorSprite = sprite2D("FloorSprite", Vec2D.zero(), mkSpriteData("floor"));
+    let floorShape = collisionShape2D("FloorShape", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32}));
+    let floor = staticBody2D("Floor_5_4", mkPos(160.0f32, 128.0f32),
+        {isSolid = false, destroyed = false},
+        floorSprite :: floorShape :: Nil);
+    let floors = node2D("Floors", Vec2D.zero(), floor :: Nil);
+    let root = node2D("Root", Vec2D.zero(), floors :: Nil);
+    let hit = SceneTree.raycast2D(
+        {x = 144.0f32, y = 144.0f32}, {x = 1.0f32, y = 0.0f32},
+        32.0f32, root);
+    Assert.assertTrue(not Option.isEmpty(hit));
+    let hitSolid = hit |> Option.map(h -> h#isSolid);
+    Assert.assertEq(expected = Some(false), hitSolid);
+    let hitGroup = hit |> Option.map(h -> h#group);
+    Assert.assertEq(expected = Some("Floors"), hitGroup)
+
+@Test
+def testRaycast2DReturnsClosest(): Unit \ Assert =
+    let mkBody = (name1, px1) ->
+        staticBody2D(name1, mkPos(px1, 128.0f32),
+            {isSolid = true, destroyed = false},
+            collisionShape2D("S", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32})) :: Nil);
+    let near = mkBody("Near", 160.0f32);
+    let far = mkBody("Far", 200.0f32);
+    let walls = node2D("Walls", Vec2D.zero(), far :: near :: Nil);
+    let root = node2D("Root", Vec2D.zero(), walls :: Nil);
+    let hit = SceneTree.raycast2D(
+        {x = 144.0f32, y = 144.0f32}, {x = 1.0f32, y = 0.0f32},
+        100.0f32, root);
+    let hitName = hit |> Option.map(h -> h#name);
+    Assert.assertEq(expected = Some("Near"), hitName)
+
+// --- Tile group propagation from buildInitialScene ---
+
+@Test
+def testTileGroupsFromBuildDungeon(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let bodies = SceneTree.collectBodies(scene);
+    // Tile_4_4 is a floor tile (grid 4,4 is inside Room 1)
+    let floorBody = List.find(b -> b#name == "Tile_4_4", bodies);
+    let floorGroup = floorBody |> Option.map(b -> b#group);
+    Assert.assertEq(expected = Some("Floors"), floorGroup);
+    // Tile_1_1 is a wall tile (adjacent to Room 1)
+    let wallBody = List.find(b -> b#name == "Tile_1_1", bodies);
+    let wallGroup = wallBody |> Option.map(b -> b#group);
+    Assert.assertEq(expected = Some("Walls"), wallGroup)
+
+@Test
+def testFloorTileNotSolid(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let bodies = SceneTree.collectBodies(scene);
+    let floorSolid = List.find(b -> b#name == "Tile_4_4", bodies) |> Option.map(b -> b#isSolid);
+    Assert.assertEq(expected = Some(false), floorSolid)
+
+@Test
+def testWallTileIsSolid(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let bodies = SceneTree.collectBodies(scene);
+    let wallSolid = List.find(b -> b#name == "Tile_1_1", bodies) |> Option.map(b -> b#isSolid);
+    Assert.assertEq(expected = Some(true), wallSolid)
+
+// --- maxDistance limit ---
+
+@Test
+def testRaycast2DMaxDistanceLimits(): Unit \ Assert =
+    let wallSprite = sprite2D("WallSprite", Vec2D.zero(), mkSpriteData("wall"));
+    let wallShape = collisionShape2D("WallShape", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32}));
+    let wall = staticBody2D("FarWall", mkPos(200.0f32, 128.0f32),
+        {isSolid = true, destroyed = false},
+        wallSprite :: wallShape :: Nil);
+    let walls = node2D("Walls", Vec2D.zero(), wall :: Nil);
+    let root = node2D("Root", Vec2D.zero(), walls :: Nil);
+    // Ray from (144, 144), wall at x=200, distance = 56 > maxDistance 32
+    let hit = SceneTree.raycast2D(
+        {x = 144.0f32, y = 144.0f32}, {x = 1.0f32, y = 0.0f32},
+        32.0f32, root);
+    Assert.assertTrue(Option.isEmpty(hit))
+
+@Test
+def testRaycast2DSkipsDestroyedBody(): Unit \ Assert =
+    let wallSprite = sprite2D("WallSprite", Vec2D.zero(), mkSpriteData("wall"));
+    let wallShape = collisionShape2D("WallShape", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32}));
+    let wall = staticBody2D("DeadWall", mkPos(160.0f32, 128.0f32),
+        {isSolid = true, destroyed = true},
+        wallSprite :: wallShape :: Nil);
+    let walls = node2D("Walls", Vec2D.zero(), wall :: Nil);
+    let root = node2D("Root", Vec2D.zero(), walls :: Nil);
+    let hit = SceneTree.raycast2D(
+        {x = 144.0f32, y = 144.0f32}, {x = 1.0f32, y = 0.0f32},
+        32.0f32, root);
+    Assert.assertTrue(Option.isEmpty(hit))
+
+// ========================================================================
+// Raycast2D Node Tests
+// ========================================================================
+
+// --- Raycast node is not drawable ---
+@Test
+def testRaycastNodeNotDrawable(): Unit \ Assert =
+    let rc = raycast2DNode("RC", mkPos(10.0f32, 10.0f32),
+        {direction = {x = 1.0f32, y = 0.0f32}, maxDistance = 32.0f32, enabled = true});
+    let root = node2D("Root", Vec2D.zero(),
+        sprite2D("Vis", Vec2D.zero(), mkSpriteData("block")) :: rc :: Nil);
+    let result = collectDrawables(root, Vec2D.zero());
+    Assert.assertEq(expected = 1, List.length(result))
+
+// --- Raycast node is not in collectBodies ---
+@Test
+def testRaycastNodeNotInCollectBodies(): Unit \ Assert =
+    let rc = raycast2DNode("RC", mkPos(10.0f32, 10.0f32),
+        {direction = {x = 1.0f32, y = 0.0f32}, maxDistance = 32.0f32, enabled = true});
+    let root = node2D("Root", Vec2D.zero(), rc :: Nil);
+    let bodies = SceneTree.collectBodies(root);
+    Assert.assertEq(expected = 0, List.length(bodies))
+
+// --- processRaycasts fires rayHit when wall is found ---
+@Test
+def testProcessRaycastsFindsWall(): Unit \ Assert =
+    let wallShape = collisionShape2D("WS", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32}));
+    let wall = staticBody2D("Wall", mkPos(160.0f32, 128.0f32),
+        {isSolid = true, destroyed = false}, wallShape :: Nil);
+    let walls = node2D("Walls", Vec2D.zero(), wall :: Nil);
+    let rc = raycast2DNode("RC", mkPos(144.0f32, 144.0f32),
+        {direction = {x = 1.0f32, y = 0.0f32}, maxDistance = 32.0f32, enabled = true});
+    let root = node2D("Root", Vec2D.zero(), walls :: rc :: Nil);
+    let result = run {
+        SceneTree.processRaycasts(root);
+        false
+    } with handler SceneTree.OnRaycast {
+        def rayHit(_name, hit, _k) = match hit {
+            case Some(h) => h#isSolid
+            case None => false
+        }
+    };
+    Assert.assertTrue(result)
+
+// --- processRaycasts skips disabled raycast ---
+@Test
+def testProcessRaycastsDisabledSkipped(): Unit \ Assert =
+    let wallShape = collisionShape2D("WS", SceneTree.CollisionShapeData.RectShape({x = 32.0f32, y = 32.0f32}));
+    let wall = staticBody2D("Wall", mkPos(160.0f32, 128.0f32),
+        {isSolid = true, destroyed = false}, wallShape :: Nil);
+    let walls = node2D("Walls", Vec2D.zero(), wall :: Nil);
+    let rc = raycast2DNode("RC", mkPos(144.0f32, 144.0f32),
+        {direction = {x = 1.0f32, y = 0.0f32}, maxDistance = 32.0f32, enabled = false});
+    let root = node2D("Root", Vec2D.zero(), walls :: rc :: Nil);
+    let result = run {
+        SceneTree.processRaycasts(root);
+        false
+    } with handler SceneTree.OnRaycast {
+        def rayHit(_name, _hit, _k) = true
+    };
+    Assert.assertFalse(result)
+
+// --- updateRaycast changes direction ---
+@Test
+def testUpdateRaycast(): Unit \ Assert =
+    let rc = raycast2DNode("RC", Vec2D.zero(),
+        {direction = {x = 1.0f32, y = 0.0f32}, maxDistance = 32.0f32, enabled = true});
+    let root = node2D("Root", Vec2D.zero(), rc :: Nil);
+    let updated = SceneTree.updateRaycast("RC",
+        rd -> {direction = {x = 0.0f32, y = 1.0f32} | rd}, root);
+    let dir = SceneTree.findNode("RC", updated)
+        |> Option.flatMap(SceneTree.raycastData)
+        |> Option.map(rd -> rd#direction#y);
+    Assert.assertEq(expected = Some(1.0f32), dir)
+
+// --- Player node2D structure: sprite is still drawable at correct position ---
+@Test
+def testPlayerNode2DDrawablePosition(): Unit \ Assert =
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let drawables = SceneTree.collectDrawables(scene, Vec2D.zero());
+    let playerDrawable = List.find(match (sd, _) -> sd#texture == "npc", drawables);
+    let px = playerDrawable |> Option.map(match (_, p) -> p#x);
+    let py = playerDrawable |> Option.map(match (_, p) -> p#y);
+    // Player at grid (4,4) with tileSz=32 => pos (128, 128), sprite offset is zero => (128, 128)
+    Assert.assertEq(expected = Some(128.0f32), px);
+    Assert.assertEq(expected = Some(128.0f32), py)

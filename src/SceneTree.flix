@@ -5,7 +5,9 @@ mod SceneTree {
         size = Vec2D.Vec2,
         color = Game.Vec3,
         texture = String,
-        visible = Bool
+        visible = Bool,
+        uvOffset = Vec2D.Vec2,
+        uvScale = Vec2D.Vec2
     }
 
     pub enum CollisionShapeData {
@@ -18,6 +20,12 @@ mod SceneTree {
     pub type alias StaticBodyData = { isSolid = Bool, destroyed = Bool }
     pub type alias AreaData = { velocity = Vec2D.Vec2 }
 
+    pub type alias RaycastData = {
+        direction = Vec2D.Vec2,
+        maxDistance = Float32,
+        enabled = Bool
+    }
+
     pub enum NodeKind {
         case Plain
         case Sprite(SpriteData)
@@ -26,6 +34,7 @@ mod SceneTree {
         case Rigid(RigidBodyData)
         case Fixed(StaticBodyData)
         case Area(AreaData)
+        case Raycast(RaycastData)
     }
 
     pub enum Node {
@@ -92,6 +101,10 @@ mod SceneTree {
         def areaEntered(nodeName: String, selfPos: Vec2D.Vec2, body: BodyContact): Unit
     }
 
+    pub eff OnRaycast {
+        def rayHit(raycastName: String, hit: Option[RaycastHit]): Unit
+    }
+
     type alias RigidBodyInfo = {
         name = String,
         node = Node,
@@ -124,6 +137,9 @@ mod SceneTree {
 
     pub def area2D(name: String, pos: Vec2D.Vec2, ad: AreaData, children: List[Node]): Node =
         Node.MkNode(name, pos, NodeKind.Area(ad), children)
+
+    pub def raycast2DNode(name: String, pos: Vec2D.Vec2, rd: RaycastData): Node =
+        Node.MkNode(name, pos, NodeKind.Raycast(rd), Nil)
 
     // ========================================================================
     // Basic Helpers
@@ -195,6 +211,14 @@ mod SceneTree {
             case _ => node
         }, root)
 
+    pub def updateSprite(name: String, f: SpriteData -> SpriteData, root: Node): Node =
+        mapNode(name, node -> match nodeKind(node) {
+            case NodeKind.Sprite(sd) =>
+                let Node.MkNode(n, p, _, ch) = node;
+                Node.MkNode(n, p, NodeKind.Sprite(f(sd)), ch)
+            case _ => node
+        }, root)
+
     pub def setNodePosition(name: String, pos: Vec2D.Vec2, root: Node): Node =
         mapNode(name, node -> {
             let Node.MkNode(n, _, k, ch) = node;
@@ -216,6 +240,20 @@ mod SceneTree {
     pub def staticBodyData(node: Node): Option[StaticBodyData] =
         match nodeKind(node) {
             case NodeKind.Fixed(bd) => Some(bd)
+            case _ => None
+        }
+
+    pub def updateRaycast(name: String, f: RaycastData -> RaycastData, root: Node): Node =
+        mapNode(name, node -> match nodeKind(node) {
+            case NodeKind.Raycast(rd) =>
+                let Node.MkNode(n, p, _, ch) = node;
+                Node.MkNode(n, p, NodeKind.Raycast(f(rd)), ch)
+            case _ => node
+        }, root)
+
+    pub def raycastData(node: Node): Option[RaycastData] =
+        match nodeKind(node) {
+            case NodeKind.Raycast(rd) => Some(rd)
             case _ => None
         }
 
@@ -289,6 +327,7 @@ mod SceneTree {
                 if (bd#destroyed) Nil
                 else List.flatMap(child -> collectDrawables(child, globalPos), children)
             case NodeKind.Shape(_) => Nil
+            case NodeKind.Raycast(_) => Nil
             case _ =>
                 List.flatMap(child -> collectDrawables(child, globalPos), children)
         }
@@ -382,6 +421,7 @@ mod SceneTree {
                 List.flatMap(child -> collectBodiesWithGroup(child, globalPos, group), children)
             case NodeKind.Sprite(_) => Nil
             case NodeKind.Shape(_) => Nil
+            case NodeKind.Raycast(_) => Nil
         }
 
     // ========================================================================
@@ -584,6 +624,131 @@ mod SceneTree {
         List.forEach(fireOverlapSignal, areaAreaEvents);
         let resolveEvents = List.filter(shouldResolve, rigidEvents);
         resolveDetectedCollisions(movedRoot, resolveEvents)
+
+    // ========================================================================
+    // Raycast2D
+    // ========================================================================
+
+    pub type alias RaycastHit = {
+        name = String,
+        position = Vec2D.Vec2,
+        kind = NodeKind,
+        group = String,
+        isSolid = Bool,
+        distance = Float32,
+        point = Vec2D.Vec2
+    }
+
+    /// Ray-AABB intersection using slab method. Returns distance t >= 0 if hit.
+    pub def rayIntersectRect(origin: Vec2D.Vec2, dir: Vec2D.Vec2,
+        rectPos: Vec2D.Vec2, rectSize: Vec2D.Vec2): Option[Float32] =
+        let bigVal = 1.0e30f32;
+        let (txMin, txMax) = if (Float32.abs(dir#x) < 0.0001f32) {
+            if (origin#x < rectPos#x or origin#x > rectPos#x + rectSize#x)
+                (bigVal, -1.0f32 * bigVal)
+            else
+                (-1.0f32 * bigVal, bigVal)
+        } else {
+            let invDx = 1.0f32 / dir#x;
+            let t1 = (rectPos#x - origin#x) * invDx;
+            let t2 = (rectPos#x + rectSize#x - origin#x) * invDx;
+            (Float32.min(t1, t2), Float32.max(t1, t2))
+        };
+        let (tyMin, tyMax) = if (Float32.abs(dir#y) < 0.0001f32) {
+            if (origin#y < rectPos#y or origin#y > rectPos#y + rectSize#y)
+                (bigVal, -1.0f32 * bigVal)
+            else
+                (-1.0f32 * bigVal, bigVal)
+        } else {
+            let invDy = 1.0f32 / dir#y;
+            let t1 = (rectPos#y - origin#y) * invDy;
+            let t2 = (rectPos#y + rectSize#y - origin#y) * invDy;
+            (Float32.min(t1, t2), Float32.max(t1, t2))
+        };
+        let tMin = Float32.max(txMin, tyMin);
+        let tMax = Float32.min(txMax, tyMax);
+        if (tMin > tMax or tMax < 0.0f32)
+            None
+        else
+            Some(Float32.max(tMin, 0.0f32))
+
+    /// Ray-circle intersection. Returns distance t >= 0 if hit.
+    def rayIntersectCircle(origin: Vec2D.Vec2, dir: Vec2D.Vec2,
+        circlePos: Vec2D.Vec2, radius: Float32): Option[Float32] =
+        let center = Vec2D.add(circlePos, {x = radius, y = radius});
+        let oc = Vec2D.sub(origin, center);
+        let a = Vec2D.dot(dir, dir);
+        let b = 2.0f32 * Vec2D.dot(oc, dir);
+        let c = Vec2D.dot(oc, oc) - radius * radius;
+        let discriminant = b * b - 4.0f32 * a * c;
+        if (discriminant < 0.0f32) None
+        else {
+            let sqrtD = Vec2D.sqrt32(discriminant);
+            let t1 = (-1.0f32 * b - sqrtD) / (2.0f32 * a);
+            let t2 = (-1.0f32 * b + sqrtD) / (2.0f32 * a);
+            if (t1 >= 0.0f32) Some(t1)
+            else if (t2 >= 0.0f32) Some(t2)
+            else None
+        }
+
+    /// Raycast against a list of bodies. Returns the closest hit within maxDistance.
+    pub def raycast2DFromBodies(origin: Vec2D.Vec2, direction: Vec2D.Vec2,
+        maxDistance: Float32, bodies: List[BodyInfo]): Option[RaycastHit] =
+        let epsilon = 0.001f32;
+        let hits = List.filterMap(body ->
+            let tOpt = match body#shape {
+                case CollisionShapeData.RectShape(size) =>
+                    rayIntersectRect(origin, direction, body#position, size)
+                case CollisionShapeData.CircleShape(radius) =>
+                    rayIntersectCircle(origin, direction, body#position, radius)
+            };
+            Option.flatMap(t ->
+                if (t > epsilon and t <= maxDistance) {
+                    let point = Vec2D.add(origin, Vec2D.mul(direction, t));
+                    Some({
+                        name = body#name,
+                        position = body#position,
+                        kind = body#kind,
+                        group = body#group,
+                        isSolid = body#isSolid,
+                        distance = t,
+                        point = point
+                    })
+                } else None
+            , tOpt)
+        , bodies);
+        let init: Option[RaycastHit] = None;
+        List.foldLeft((closest, hit) ->
+            match closest {
+                case None => Some(hit)
+                case Some(c) => if (hit#distance < c#distance) Some(hit) else closest
+            }
+        , init, hits)
+
+    /// Raycast against the entire scene tree.
+    pub def raycast2D(origin: Vec2D.Vec2, direction: Vec2D.Vec2,
+        maxDistance: Float32, root: Node): Option[RaycastHit] =
+        raycast2DFromBodies(origin, direction, maxDistance, collectBodies(root))
+
+    /// Collect all Raycast nodes from the tree with their global positions.
+    pub def collectRaycastNodes(node: Node, parentPos: Vec2D.Vec2): List[(String, Vec2D.Vec2, RaycastData)] =
+        let Node.MkNode(name, pos, kind, children) = node;
+        let globalPos = Vec2D.add(parentPos, pos);
+        match kind {
+            case NodeKind.Raycast(rd) => (name, globalPos, rd) :: Nil
+            case _ => List.flatMap(child -> collectRaycastNodes(child, globalPos), children)
+        }
+
+    /// Process all enabled Raycast nodes: cast rays and fire OnRaycast.rayHit.
+    pub def processRaycasts(root: Node): Unit \ OnRaycast =
+        let bodies = collectBodies(root);
+        let raycasts = collectRaycastNodes(root, Vec2D.zero());
+        List.forEach(match (name, origin, rd) ->
+            if (rd#enabled) {
+                let hit = raycast2DFromBodies(origin, rd#direction, rd#maxDistance, bodies);
+                OnRaycast.rayHit(name, hit)
+            } else ()
+        , raycasts)
 
     def physicsStepNode(node: Node, dt: Float32, config: PhysicsConfig): Node =
         let Node.MkNode(name, pos, kind, children) = node;
