@@ -168,6 +168,23 @@ mod LwjglLayer {
         let loc = GL20.glGetUniformLocation(shader, "projection");
         GL20.glUniformMatrix4fv(loc, false, proj)
 
+    def setCameraProjection(shader: Int32, viewCenter: Vec2D.Vec2, zoom: Vec2D.Vec2, width: Float32, height: Float32): Unit \ IO =
+        GL20.glUseProgram(shader);
+        let halfW = width / (2.0f32 * zoom#x);
+        let halfH = height / (2.0f32 * zoom#y);
+        let left = viewCenter#x - halfW;
+        let right = viewCenter#x + halfW;
+        let top = viewCenter#y - halfH;
+        let bottom = viewCenter#y + halfH;
+        let proj = Array#{
+            2.0f32 / (right - left), 0.0f32, 0.0f32, 0.0f32,
+            0.0f32, 2.0f32 / (top - bottom), 0.0f32, 0.0f32,
+            0.0f32, 0.0f32, -1.0f32, 0.0f32,
+            -1.0f32 * (right + left) / (right - left), -1.0f32 * (top + bottom) / (top - bottom), 0.0f32, 1.0f32
+        } @ Static;
+        let loc = GL20.glGetUniformLocation(shader, "projection");
+        GL20.glUniformMatrix4fv(loc, false, proj)
+
     def drawSprite(shader: Int32, texture: Int32, vao: Int32, pos: Vec2D.Vec2, size: Vec2D.Vec2, color: Game.Vec3, uvOff: Vec2D.Vec2, uvSc: Vec2D.Vec2): Unit \ IO =
         GL20.glUseProgram(shader);
 
@@ -203,6 +220,16 @@ mod LwjglLayer {
     def renderScene(scene: SceneTree.Node, registry: Game.TextureRegistry, shader: Int32, vao: Int32): Unit \ IO =
         GL11.glClearColor(0.0f32, 0.0f32, 0.0f32, 1.0f32);
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+
+        let screenW = Int32.toFloat32(Game.screenWidth());
+        let screenH = Int32.toFloat32(Game.screenHeight());
+        match SceneTree.findCurrentCamera(scene) {
+            case Some((cd, _camGlobalPos)) =>
+                let viewCenter = Vec2D.add(cd#smoothedPos, cd#offset);
+                setCameraProjection(shader, viewCenter, cd#zoom, screenW, screenH)
+            case None =>
+                setProjectionMatrix(shader, screenW, screenH)
+        };
 
         let drawables = SceneTree.collectDrawables(scene, Vec2D.zero());
         List.forEach(match (spriteData, globalPos) -> {

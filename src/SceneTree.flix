@@ -21,6 +21,19 @@ mod SceneTree {
     pub type alias AreaData = { velocity = Vec2D.Vec2 }
     pub type alias CharacterBodyData = { targetPos = Vec2D.Vec2, moveSpeed = Float32 }
 
+    pub type alias CameraData = {
+        offset = Vec2D.Vec2,
+        zoom = Vec2D.Vec2,
+        smoothingEnabled = Bool,
+        smoothingSpeed = Float32,
+        limitLeft = Float32,
+        limitRight = Float32,
+        limitTop = Float32,
+        limitBottom = Float32,
+        isCurrent = Bool,
+        smoothedPos = Vec2D.Vec2
+    }
+
     pub type alias RaycastData = {
         direction = Vec2D.Vec2,
         maxDistance = Float32,
@@ -37,6 +50,7 @@ mod SceneTree {
         case Area(AreaData)
         case Raycast(RaycastData)
         case Character(CharacterBodyData)
+        case Camera(CameraData)
     }
 
     pub enum Node {
@@ -145,6 +159,9 @@ mod SceneTree {
 
     pub def characterBody2D(name: String, pos: Vec2D.Vec2, cbd: CharacterBodyData, children: List[Node]): Node =
         Node.MkNode(name, pos, NodeKind.Character(cbd), children)
+
+    pub def camera2DNode(name: String, pos: Vec2D.Vec2, cd: CameraData): Node =
+        Node.MkNode(name, pos, NodeKind.Camera(cd), Nil)
 
     // ========================================================================
     // Basic Helpers
@@ -333,6 +350,44 @@ mod SceneTree {
         else List.findMap(child -> globalPositionHelper(name, child, currentPos), nodeChildren(node))
 
     // ========================================================================
+    // Camera2D
+    // ========================================================================
+
+    pub def findCurrentCamera(node: Node): Option[(CameraData, Vec2D.Vec2)] =
+        findCurrentCameraHelper(node, Vec2D.zero())
+
+    def findCurrentCameraHelper(node: Node, parentPos: Vec2D.Vec2): Option[(CameraData, Vec2D.Vec2)] =
+        let Node.MkNode(_, pos, kind, children) = node;
+        let globalPos = Vec2D.add(parentPos, pos);
+        match kind {
+            case NodeKind.Camera(cd) =>
+                if (cd#isCurrent) Some((cd, globalPos)) else None
+            case _ =>
+                List.findMap(child -> findCurrentCameraHelper(child, globalPos), children)
+        }
+
+    pub def updateCameraSmoothing(dt: Float32, root: Node): Node =
+        updateCameraSmoothingHelper(dt, root, Vec2D.zero())
+
+    def updateCameraSmoothingHelper(dt: Float32, node: Node, parentPos: Vec2D.Vec2): Node =
+        let Node.MkNode(name, pos, kind, children) = node;
+        let globalPos = Vec2D.add(parentPos, pos);
+        match kind {
+            case NodeKind.Camera(cd) =>
+                if (cd#isCurrent) {
+                    let newSmoothed = if (Vec2D.isZeroApprox(cd#smoothedPos) and not Vec2D.isZeroApprox(globalPos)) {
+                        globalPos
+                    } else if (cd#smoothingEnabled) {
+                        let t = Float32.min(1.0f32, cd#smoothingSpeed * dt);
+                        Vec2D.lerp(cd#smoothedPos, globalPos, t)
+                    } else globalPos;
+                    Node.MkNode(name, pos, NodeKind.Camera({smoothedPos = newSmoothed | cd}), children)
+                } else node
+            case _ =>
+                Node.MkNode(name, pos, kind, List.map(child -> updateCameraSmoothingHelper(dt, child, globalPos), children))
+        }
+
+    // ========================================================================
     // Rendering: collectDrawables
     // ========================================================================
 
@@ -347,6 +402,7 @@ mod SceneTree {
                 else List.flatMap(child -> collectDrawables(child, globalPos), children)
             case NodeKind.Shape(_) => Nil
             case NodeKind.Raycast(_) => Nil
+            case NodeKind.Camera(_) => Nil
             case _ =>
                 List.flatMap(child -> collectDrawables(child, globalPos), children)
         }
@@ -449,6 +505,7 @@ mod SceneTree {
             case NodeKind.Sprite(_) => Nil
             case NodeKind.Shape(_) => Nil
             case NodeKind.Raycast(_) => Nil
+            case NodeKind.Camera(_) => Nil
             case NodeKind.Character(_) =>
                 List.flatMap(child -> collectBodiesWithGroup(child, globalPos, group), children)
         }

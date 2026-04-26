@@ -7,24 +7,46 @@
 
 mod Dungeon {
 
+    def minRooms(): Int32 = 5
+    def maxRooms(): Int32 = 7
+    def roomMargin(): Int32 = 3
+    def placementAttempts(): Int32 = 150
+
     /// Generate a dungeon with rooms and corridors.
     /// Returns a Set of (col, row) pairs representing floor tiles.
     pub def generate(cols: Int32, rows: Int32, seed: Int64): Set[(Int32, Int32)] =
-        RandHandler.withSeed(seed, () -> {
-            let rooms = placeRooms(cols, rows, 6, 30, Nil);
-            let floors = List.foldLeft((acc, room) -> carveRoom(acc, room), Set.empty(), rooms);
-            connectRooms(floors, rooms)
-        })
+        generateWithRetry(cols, rows, seed, 0)
+
+    def generateWithRetry(cols: Int32, rows: Int32, seed: Int64, retry: Int32): Set[(Int32, Int32)] =
+        let rooms = RandHandler.withSeed(seed, () ->
+            placeRooms(cols, rows, maxRooms(), placementAttempts(), Nil));
+        if (List.length(rooms) < minRooms() and retry < 20)
+            generateWithRetry(cols, rows, seed + 97i64, retry + 1)
+        else
+            RandHandler.withSeed(seed, () -> {
+                let rooms2 = placeRooms(cols, rows, maxRooms(), placementAttempts(), Nil);
+                let floors = List.foldLeft((acc, room) -> carveRoom(acc, room), Set.empty(), rooms2);
+                connectRooms(floors, rooms2)
+            })
 
     /// Player starts at the center of the first room.
     pub def playerStartForRooms(cols: Int32, rows: Int32, seed: Int64): {col = Int32, row = Int32} =
-        RandHandler.withSeed(seed, () -> {
-            let rooms = placeRooms(cols, rows, 6, 30, Nil);
+        let actualSeed = findViableSeed(cols, rows, seed, 0);
+        RandHandler.withSeed(actualSeed, () -> {
+            let rooms = placeRooms(cols, rows, maxRooms(), placementAttempts(), Nil);
             match rooms {
                 case Nil => {col = 1, row = 1}
                 case r :: _ => roomCenter(r)
             }
         })
+
+    def findViableSeed(cols: Int32, rows: Int32, seed: Int64, retry: Int32): Int64 =
+        let rooms = RandHandler.withSeed(seed, () ->
+            placeRooms(cols, rows, maxRooms(), placementAttempts(), Nil));
+        if (List.length(rooms) < minRooms() and retry < 20)
+            findViableSeed(cols, rows, seed + 97i64, retry + 1)
+        else
+            seed
 
     // ========================================================================
     // Room type: (x, y, w, h) — top-left corner and dimensions
@@ -43,8 +65,8 @@ mod Dungeon {
                    placed: List[Room]): List[Room] \ Rand =
         if (attempts <= 0 or List.length(placed) >= maxRooms) placed
         else {
-            let w = Rand.nextInt(4) + 3;    // width  3..6
-            let h = Rand.nextInt(4) + 3;    // height 3..6
+            let w = Rand.nextInt(10) + 6;   // width  6..15
+            let h = Rand.nextInt(10) + 6;   // height 6..15
             let x = Rand.nextInt(cols - w - 2) + 1;
             let y = Rand.nextInt(rows - h - 2) + 1;
             let room = {x = x, y = y, w = w, h = h};
@@ -58,9 +80,9 @@ mod Dungeon {
         List.exists(other -> overlaps(room, other), rooms)
 
     def overlaps(a: Room, b: Room): Bool =
-        // 1-tile margin between rooms
-        a#x - 1 < b#x + b#w and a#x + a#w + 1 > b#x and
-        a#y - 1 < b#y + b#h and a#y + a#h + 1 > b#y
+        let m = roomMargin();
+        a#x - m < b#x + b#w and a#x + a#w + m > b#x and
+        a#y - m < b#y + b#h and a#y + a#h + m > b#y
 
     // ========================================================================
     // Carving

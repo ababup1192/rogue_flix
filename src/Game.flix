@@ -26,8 +26,8 @@ mod Game {
     pub def screenWidth(): Int32 = 800
     pub def screenHeight(): Int32 = 600
     pub def tileSize(): Float32 = 32.0f32
-    pub def gridCols(): Int32 = 25
-    pub def gridRows(): Int32 = 19
+    pub def gridCols(): Int32 = 50
+    pub def gridRows(): Int32 = 38
     pub def moveSpeed(): Float32 = 192.0f32
 
     // WASD keys
@@ -49,6 +49,7 @@ mod Game {
         ("npc", "textures/npc.png", true) ::
         ("floor", "textures/atlas_floor-16x16.png", true) ::
         ("wall", "textures/atlas_walls_low-16x16.png", true) ::
+        ("wall_high", "textures/atlas_walls_high-16x32.png", true) ::
         Nil
 
     // ========================================================================

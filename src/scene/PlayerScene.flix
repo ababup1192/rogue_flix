@@ -58,9 +58,13 @@ mod PlayerScene {
                 direction = {x = 0.0f32, y = 1.0f32}
             })
             |> Raycast2D.maxDistance(tileSz);
+        let playerCamera = Camera2D.init({name = "PlayerCamera", pos = Vec2D.zero()})
+            |> Camera2D.makeCurrent(true)
+            |> Camera2D.smoothingEnabled(true)
+            |> Camera2D.smoothingSpeed(5.0f32);
         CharacterBody2D.init({
                 name = playerName(), pos = {x = px, y = py},
-                children = playerSprite :: playerRaycast :: Nil
+                children = playerSprite :: playerRaycast :: playerCamera :: Nil
             })
             |> CharacterBody2D.moveSpeed(moveSpd)
 

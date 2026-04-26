@@ -27,5 +27,7 @@ mod RogueScene {
     // ========================================================================
 
     pub def stepPhysics(dt: Float32, scene: SceneTree.Node): SceneTree.Node =
-        SceneTree.stepCharacterBodies(dt, scene)
+        scene
+            |> SceneTree.stepCharacterBodies(dt)
+            |> SceneTree.updateCameraSmoothing(dt)
 }

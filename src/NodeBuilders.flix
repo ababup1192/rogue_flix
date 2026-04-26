@@ -121,3 +121,71 @@ mod Raycast2D {
             case _ => node
         }
 }
+
+// ========================================================================
+// Camera2D
+// ========================================================================
+
+mod Camera2D {
+    pub def init(req: {name = String, pos = Vec2D.Vec2}): SceneTree.Node =
+        SceneTree.camera2DNode(req#name, req#pos, {
+            offset = Vec2D.zero(),
+            zoom = Vec2D.one(),
+            smoothingEnabled = false,
+            smoothingSpeed = 5.0f32,
+            limitLeft = -10000000.0f32,
+            limitRight = 10000000.0f32,
+            limitTop = -10000000.0f32,
+            limitBottom = 10000000.0f32,
+            isCurrent = false,
+            smoothedPos = Vec2D.zero()
+        })
+
+    pub def offset(v: Vec2D.Vec2, node: SceneTree.Node): SceneTree.Node =
+        let SceneTree.Node.MkNode(n, p, kind, ch) = node;
+        match kind {
+            case SceneTree.NodeKind.Camera(cd) =>
+                SceneTree.Node.MkNode(n, p, SceneTree.NodeKind.Camera({offset = v | cd}), ch)
+            case _ => node
+        }
+
+    pub def zoom(v: Vec2D.Vec2, node: SceneTree.Node): SceneTree.Node =
+        let SceneTree.Node.MkNode(n, p, kind, ch) = node;
+        match kind {
+            case SceneTree.NodeKind.Camera(cd) =>
+                SceneTree.Node.MkNode(n, p, SceneTree.NodeKind.Camera({zoom = v | cd}), ch)
+            case _ => node
+        }
+
+    pub def smoothingEnabled(v: Bool, node: SceneTree.Node): SceneTree.Node =
+        let SceneTree.Node.MkNode(n, p, kind, ch) = node;
+        match kind {
+            case SceneTree.NodeKind.Camera(cd) =>
+                SceneTree.Node.MkNode(n, p, SceneTree.NodeKind.Camera({smoothingEnabled = v | cd}), ch)
+            case _ => node
+        }
+
+    pub def smoothingSpeed(v: Float32, node: SceneTree.Node): SceneTree.Node =
+        let SceneTree.Node.MkNode(n, p, kind, ch) = node;
+        match kind {
+            case SceneTree.NodeKind.Camera(cd) =>
+                SceneTree.Node.MkNode(n, p, SceneTree.NodeKind.Camera({smoothingSpeed = v | cd}), ch)
+            case _ => node
+        }
+
+    pub def limits(l: Float32, r: Float32, t: Float32, b: Float32, node: SceneTree.Node): SceneTree.Node =
+        let SceneTree.Node.MkNode(n, p, kind, ch) = node;
+        match kind {
+            case SceneTree.NodeKind.Camera(cd) =>
+                SceneTree.Node.MkNode(n, p, SceneTree.NodeKind.Camera({limitLeft = l, limitRight = r, limitTop = t, limitBottom = b | cd}), ch)
+            case _ => node
+        }
+
+    pub def makeCurrent(v: Bool, node: SceneTree.Node): SceneTree.Node =
+        let SceneTree.Node.MkNode(n, p, kind, ch) = node;
+        match kind {
+            case SceneTree.NodeKind.Camera(cd) =>
+                SceneTree.Node.MkNode(n, p, SceneTree.NodeKind.Camera({isCurrent = v | cd}), ch)
+            case _ => node
+        }
+}
