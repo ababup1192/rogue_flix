@@ -47,12 +47,15 @@ mod PlayerScene {
         let px = Int32.toFloat32(playerGridX) * tileSz;
         let py = Int32.toFloat32(playerGridY) * tileSz;
         let (uvOff, uvSc) = uvForDirection(SceneTree.Direction.Down);
+        let frameW = 1.0f32 / 15.0f32;
         let half = tileSz / 2.0f32;
-        let playerSprite = Sprite2D.init({
+        let playerSprite = AnimatedSprite2D.init({
                 name = "PlayerSprite", pos = Vec2D.zero(),
-                size = {x = tileSz, y = tileSz}, texture = "npc"
+                size = {x = tileSz, y = tileSz}, texture = "npc",
+                frameCount = 3, frameWidth = frameW
             })
-            |> Sprite2D.uv(uvOff, uvSc);
+            |> AnimatedSprite2D.uv(uvOff, uvSc)
+            |> AnimatedSprite2D.fps(4.0f32);
         let playerRaycast = Raycast2D.init({
                 name = "PlayerRaycast", pos = {x = half, y = half},
                 direction = {x = 0.0f32, y = 1.0f32}
@@ -100,8 +103,8 @@ mod PlayerScene {
 
     pub def setPlayerFacing(dir: SceneTree.Direction, scene: SceneTree.Node): SceneTree.Node =
         let (uvOff, uvSc) = uvForDirection(dir);
-        SceneTree.updateChildSprite(playerName(), sd ->
-            {uvOffset = uvOff, uvScale = uvSc | sd},
+        SceneTree.updateChildAnimatedSprite(playerName(), asd ->
+            {uvOffset = uvOff, uvScale = uvSc | asd},
             scene)
 
     // ========================================================================

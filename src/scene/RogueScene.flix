@@ -30,4 +30,5 @@ mod RogueScene {
         scene
             |> SceneTree.stepCharacterBodies(dt)
             |> SceneTree.updateCameraSmoothing(dt)
+            |> SceneTree.stepAnimations(dt)
 }

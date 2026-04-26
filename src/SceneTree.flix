@@ -34,6 +34,21 @@ mod SceneTree {
         smoothedPos = Vec2D.Vec2
     }
 
+    pub type alias AnimatedSpriteData = {
+        size = Vec2D.Vec2,
+        color = Game.Vec3,
+        texture = String,
+        visible = Bool,
+        uvOffset = Vec2D.Vec2,
+        uvScale = Vec2D.Vec2,
+        frameCount = Int32,
+        frameWidth = Float32,
+        currentFrame = Int32,
+        frameTimer = Float32,
+        fps = Float32,
+        playing = Bool
+    }
+
     pub type alias RaycastData = {
         direction = Vec2D.Vec2,
         maxDistance = Float32,
@@ -51,6 +66,7 @@ mod SceneTree {
         case Raycast(RaycastData)
         case Character(CharacterBodyData)
         case Camera(CameraData)
+        case AnimatedSprite(AnimatedSpriteData)
     }
 
     pub enum Node {
@@ -162,6 +178,9 @@ mod SceneTree {
 
     pub def camera2DNode(name: String, pos: Vec2D.Vec2, cd: CameraData): Node =
         Node.MkNode(name, pos, NodeKind.Camera(cd), Nil)
+
+    pub def animatedSprite2D(name: String, pos: Vec2D.Vec2, asd: AnimatedSpriteData): Node =
+        Node.MkNode(name, pos, NodeKind.AnimatedSprite(asd), Nil)
 
     // ========================================================================
     // Basic Helpers
@@ -305,6 +324,33 @@ mod SceneTree {
             case _ => None
         }, children)
 
+    pub def updateAnimatedSprite(name: String, f: AnimatedSpriteData -> AnimatedSpriteData, root: Node): Node =
+        mapNode(name, node -> match nodeKind(node) {
+            case NodeKind.AnimatedSprite(asd) =>
+                let Node.MkNode(n, p, _, ch) = node;
+                Node.MkNode(n, p, NodeKind.AnimatedSprite(f(asd)), ch)
+            case _ => node
+        }, root)
+
+    /// Update the first AnimatedSprite child of the node named `parentName`.
+    pub def updateChildAnimatedSprite(parentName: String, f: AnimatedSpriteData -> AnimatedSpriteData, root: Node): Node =
+        mapNode(parentName, node -> {
+            let Node.MkNode(n, pos, kind, children) = node;
+            let newChildren = mapFirstAnimatedSprite(f, children);
+            Node.MkNode(n, pos, kind, newChildren)
+        }, root)
+
+    def mapFirstAnimatedSprite(f: AnimatedSpriteData -> AnimatedSpriteData, children: List[Node]): List[Node] =
+        match children {
+            case Nil => Nil
+            case hd :: tl => match nodeKind(hd) {
+                case NodeKind.AnimatedSprite(asd) =>
+                    let Node.MkNode(n, p, _, ch) = hd;
+                    Node.MkNode(n, p, NodeKind.AnimatedSprite(f(asd)), ch) :: tl
+                case _ => hd :: mapFirstAnimatedSprite(f, tl)
+            }
+        }
+
     /// Update the first Sprite child of the node named `parentName`.
     pub def updateChildSprite(parentName: String, f: SpriteData -> SpriteData, root: Node): Node =
         mapNode(parentName, node -> {
@@ -388,6 +434,28 @@ mod SceneTree {
         }
 
     // ========================================================================
+    // AnimatedSprite2D: frame stepping
+    // ========================================================================
+
+    pub def stepAnimations(dt: Float32, root: Node): Node =
+        let Node.MkNode(name, pos, kind, children) = root;
+        match kind {
+            case NodeKind.AnimatedSprite(asd) =>
+                if (asd#playing and asd#frameCount > 1) {
+                    let newTimer = asd#frameTimer + dt;
+                    let frameDuration = 1.0f32 / asd#fps;
+                    if (newTimer >= frameDuration) {
+                        let newFrame = Int32.remainder(asd#currentFrame + 1, asd#frameCount);
+                        Node.MkNode(name, pos, NodeKind.AnimatedSprite({currentFrame = newFrame, frameTimer = newTimer - frameDuration | asd}), children)
+                    } else {
+                        Node.MkNode(name, pos, NodeKind.AnimatedSprite({frameTimer = newTimer | asd}), children)
+                    }
+                } else root
+            case _ =>
+                Node.MkNode(name, pos, kind, List.map(child -> stepAnimations(dt, child), children))
+        }
+
+    // ========================================================================
     // Rendering: collectDrawables
     // ========================================================================
 
@@ -400,6 +468,17 @@ mod SceneTree {
             case NodeKind.Fixed(bd) =>
                 if (bd#destroyed) Nil
                 else List.flatMap(child -> collectDrawables(child, globalPos), children)
+            case NodeKind.AnimatedSprite(asd) =>
+                if (asd#visible) {
+                    let uvX = asd#uvOffset#x + Int32.toFloat32(asd#currentFrame) * asd#frameWidth;
+                    let sd: SpriteData = {
+                        size = asd#size, color = asd#color, texture = asd#texture,
+                        visible = true,
+                        uvOffset = {x = uvX, y = asd#uvOffset#y},
+                        uvScale = asd#uvScale
+                    };
+                    (sd, globalPos) :: Nil
+                } else Nil
             case NodeKind.Shape(_) => Nil
             case NodeKind.Raycast(_) => Nil
             case NodeKind.Camera(_) => Nil
@@ -503,6 +582,7 @@ mod SceneTree {
             case NodeKind.Rigid(_) =>
                 List.flatMap(child -> collectBodiesWithGroup(child, globalPos, group), children)
             case NodeKind.Sprite(_) => Nil
+            case NodeKind.AnimatedSprite(_) => Nil
             case NodeKind.Shape(_) => Nil
             case NodeKind.Raycast(_) => Nil
             case NodeKind.Camera(_) => Nil
