@@ -256,7 +256,7 @@ mod LwjglLayer {
 
         let result = run { f() } with handler Game.Game {
             def getInitialState(_, k) = {
-                let state = Game.initGame(Game.screenWidth(), Game.screenHeight());
+                let state = Game.initGame(4, 4);
                 println("Game ready!");
                 k(state)
             }

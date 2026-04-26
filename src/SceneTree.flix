@@ -19,6 +19,7 @@ mod SceneTree {
     pub type alias RigidBodyData = { velocity = Vec2D.Vec2, stuck = Bool }
     pub type alias StaticBodyData = { isSolid = Bool, destroyed = Bool }
     pub type alias AreaData = { velocity = Vec2D.Vec2 }
+    pub type alias CharacterBodyData = { targetPos = Vec2D.Vec2, moveSpeed = Float32 }
 
     pub type alias RaycastData = {
         direction = Vec2D.Vec2,
@@ -35,6 +36,7 @@ mod SceneTree {
         case Fixed(StaticBodyData)
         case Area(AreaData)
         case Raycast(RaycastData)
+        case Character(CharacterBodyData)
     }
 
     pub enum Node {
@@ -141,6 +143,9 @@ mod SceneTree {
     pub def raycast2DNode(name: String, pos: Vec2D.Vec2, rd: RaycastData): Node =
         Node.MkNode(name, pos, NodeKind.Raycast(rd), Nil)
 
+    pub def characterBody2D(name: String, pos: Vec2D.Vec2, cbd: CharacterBodyData, children: List[Node]): Node =
+        Node.MkNode(name, pos, NodeKind.Character(cbd), children)
+
     // ========================================================================
     // Basic Helpers
     // ========================================================================
@@ -243,6 +248,14 @@ mod SceneTree {
             case _ => None
         }
 
+    pub def updateCharacterBody(name: String, f: CharacterBodyData -> CharacterBodyData, root: Node): Node =
+        mapNode(name, node -> match nodeKind(node) {
+            case NodeKind.Character(cbd) =>
+                let Node.MkNode(n, t, _, ch) = node;
+                Node.MkNode(n, t, NodeKind.Character(f(cbd)), ch)
+            case _ => node
+        }, root)
+
     pub def updateRaycast(name: String, f: RaycastData -> RaycastData, root: Node): Node =
         mapNode(name, node -> match nodeKind(node) {
             case NodeKind.Raycast(rd) =>
@@ -254,6 +267,12 @@ mod SceneTree {
     pub def raycastData(node: Node): Option[RaycastData] =
         match nodeKind(node) {
             case NodeKind.Raycast(rd) => Some(rd)
+            case _ => None
+        }
+
+    pub def characterBodyData(node: Node): Option[CharacterBodyData] =
+        match nodeKind(node) {
+            case NodeKind.Character(cbd) => Some(cbd)
             case _ => None
         }
 
@@ -335,6 +354,14 @@ mod SceneTree {
     // ========================================================================
     // Engine: Direction helpers
     // ========================================================================
+
+    pub def directionToVec(dir: Direction): Vec2D.Vec2 =
+        match dir {
+            case Direction.Up    => {x = 0.0f32, y = -1.0f32}
+            case Direction.Down  => {x = 0.0f32, y = 1.0f32}
+            case Direction.Left  => {x = -1.0f32, y = 0.0f32}
+            case Direction.Right => {x = 1.0f32, y = 0.0f32}
+        }
 
     pub def vectorDirection(target: Vec2D.Vec2): Direction =
         let dotUp    = target#y;
@@ -422,6 +449,8 @@ mod SceneTree {
             case NodeKind.Sprite(_) => Nil
             case NodeKind.Shape(_) => Nil
             case NodeKind.Raycast(_) => Nil
+            case NodeKind.Character(_) =>
+                List.flatMap(child -> collectBodiesWithGroup(child, globalPos, group), children)
         }
 
     // ========================================================================
@@ -781,5 +810,23 @@ mod SceneTree {
             case NodeKind.Plain =>
                 Node.MkNode(name, pos, kind, List.map(child -> physicsStepNode(child, dt, config), children))
             case _ => node
+        }
+
+    // ========================================================================
+    // Engine: stepCharacterBodies (grid-based moveToward interpolation)
+    // ========================================================================
+
+    pub def stepCharacterBodies(dt: Float32, root: Node): Node =
+        let Node.MkNode(name, pos, kind, children) = root;
+        match kind {
+            case NodeKind.Character(cbd) =>
+                if (Vec2D.isZeroApprox(Vec2D.sub(cbd#targetPos, pos))) root
+                else {
+                    let newPos = Vec2D.moveToward(pos, cbd#targetPos, cbd#moveSpeed * dt);
+                    Node.MkNode(name, newPos, kind, children)
+                }
+            case NodeKind.Plain =>
+                Node.MkNode(name, pos, kind, List.map(child -> stepCharacterBodies(dt, child), children))
+            case _ => root
         }
 }

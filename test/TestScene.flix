@@ -781,39 +781,32 @@ def testCheckShapeOverlapCircleCircleMiss(): Unit \ Assert =
 
 @Test
 def testSetPlayerFacingChangesUV(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
     // Initial facing is Down (row 0), uvOffset.y = 1.0
     let drawablesInit = SceneTree.collectDrawables(scene, Vec2D.zero());
     let initUvY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawablesInit);
     Assert.assertEq(expected = Some(1.0f32), initUvY);
     // Change facing to Right (row 2), uvOffset.y = 6/8 = 0.75
-    let rightScene = RogueScene.setPlayerFacing(SceneTree.Direction.Right, scene);
+    let rightScene = PlayerScene.setPlayerFacing(SceneTree.Direction.Right, scene);
     let drawablesRight = SceneTree.collectDrawables(rightScene, Vec2D.zero());
     let rightUvY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawablesRight);
     Assert.assertEq(expected = Some(6.0f32 / 8.0f32), rightUvY)
 
 @Test
 def testMovePlayerChangesFacingUV(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
-    let state: Game.GameState = {
-        scene = scene,
-        playerGridX = 4, playerGridY = 4,
-        facing = SceneTree.Direction.Down,
-        currentPos = {x = 128.0f32, y = 128.0f32},
-        targetPos = {x = 128.0f32, y = 128.0f32}
-    };
-    let rightState = Game.movePlayer(SceneTree.Direction.Right, state);
-    let drawables = SceneTree.collectDrawables(rightState#scene, Vec2D.zero());
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
+    let rightScene = PlayerScene.movePlayer(SceneTree.Direction.Right, 32.0f32, scene);
+    let drawables = SceneTree.collectDrawables(rightScene, Vec2D.zero());
     let uvOffY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawables);
     // Right = row 2, uvOffset.y = 6/8 = 0.75
     Assert.assertEq(expected = Some(6.0f32 / 8.0f32), uvOffY)
 
 @Test
 def testSetPlayerPositionPreservesUV(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
     // Right = row 2, uvOffset.y = 6/8 = 0.75
-    let rightScene = RogueScene.setPlayerFacing(SceneTree.Direction.Right, scene);
-    let movedScene = RogueScene.setPlayerPosition({x = 160.0f32, y = 128.0f32}, rightScene);
+    let rightScene = PlayerScene.setPlayerFacing(SceneTree.Direction.Right, scene);
+    let movedScene = PlayerScene.setPlayerPosition({x = 160.0f32, y = 128.0f32}, rightScene);
     let drawables = SceneTree.collectDrawables(movedScene, Vec2D.zero());
     let uvOffY = List.findMap(match (sd, _) -> if (sd#texture == "npc") Some(sd#uvOffset#y) else None, drawables);
     Assert.assertEq(expected = Some(6.0f32 / 8.0f32), uvOffY)
@@ -929,7 +922,7 @@ def testRaycast2DReturnsClosest(): Unit \ Assert =
 
 @Test
 def testTileGroupsFromBuildDungeon(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
     let bodies = SceneTree.collectBodies(scene);
     // Tile_4_4 is a floor tile (grid 4,4 is inside Room 1)
     let floorBody = List.find(b -> b#name == "Tile_4_4", bodies);
@@ -942,14 +935,14 @@ def testTileGroupsFromBuildDungeon(): Unit \ Assert =
 
 @Test
 def testFloorTileNotSolid(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
     let bodies = SceneTree.collectBodies(scene);
     let floorSolid = List.find(b -> b#name == "Tile_4_4", bodies) |> Option.map(b -> b#isSolid);
     Assert.assertEq(expected = Some(false), floorSolid)
 
 @Test
 def testWallTileIsSolid(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
     let bodies = SceneTree.collectBodies(scene);
     let wallSolid = List.find(b -> b#name == "Tile_1_1", bodies) |> Option.map(b -> b#isSolid);
     Assert.assertEq(expected = Some(true), wallSolid)
@@ -1063,7 +1056,7 @@ def testUpdateRaycast(): Unit \ Assert =
 // --- Player node2D structure: sprite is still drawable at correct position ---
 @Test
 def testPlayerNode2DDrawablePosition(): Unit \ Assert =
-    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32);
+    let scene = RogueScene.buildInitialScene(20, 18, 4, 4, 32.0f32, 192.0f32);
     let drawables = SceneTree.collectDrawables(scene, Vec2D.zero());
     let playerDrawable = List.find(match (sd, _) -> sd#texture == "npc", drawables);
     let px = playerDrawable |> Option.map(match (_, p) -> p#x);
