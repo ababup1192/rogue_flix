@@ -1,25 +1,9 @@
-// FloorScene — dungeon floor layout and tile building
+// FloorScene — dungeon floor tile building
 
 mod FloorScene {
-    // ========================================================================
-    // Dungeon Layout
-    // ========================================================================
-    //
-    // Room 1 (top-left):      floor x=[2,6],  y=[2,6]
-    // Room 2 (top-right):     floor x=[13,17], y=[2,6]
-    // Room 3 (bottom-center): floor x=[7,11],  y=[11,15]
-    // Corridor 1 (horizontal): y=4, x=[7,12]  (Room1 <-> Room2)
-    // Corridor 2 (vertical):   x=9, y=[5,10]  (Corridor1 <-> Room3)
 
-    def inRoom(col: Int32, row: Int32, x1: Int32, y1: Int32, x2: Int32, y2: Int32): Bool =
-        col >= x1 and col <= x2 and row >= y1 and row <= y2
-
-    pub def isFloor(col: Int32, row: Int32): Bool =
-        inRoom(col, row, 2, 2, 6, 6) or
-        inRoom(col, row, 13, 2, 17, 6) or
-        inRoom(col, row, 7, 11, 11, 15) or
-        (col >= 7 and col <= 12 and row == 4) or
-        (col == 9 and row >= 5 and row <= 10)
+    pub def isFloor(floors: Set[(Int32, Int32)], col: Int32, row: Int32): Bool =
+        Set.memberOf((col, row), floors)
 
     // ========================================================================
     // Atlas UV
@@ -49,14 +33,14 @@ mod FloorScene {
             })
             |> StaticBody2D.isSolid(false)
 
-    pub def buildFloorTiles(cols: Int32, rows: Int32, tileSz: Float32): List[SceneTree.Node] =
+    pub def buildFloorTiles(floors: Set[(Int32, Int32)], cols: Int32, rows: Int32, tileSz: Float32): List[SceneTree.Node] =
         let (floorOff, floorSc) = floorUV();
         let tileShape = SceneTree.CollisionShapeData.RectShape({x = tileSz, y = tileSz});
         List.range(0, rows)
             |> List.flatMap(row -> List.range(0, cols) |> List.map(col -> (col, row)))
             |> List.filterMap(match (col, row) ->
-                if (isFloor(col, row))
+                if (isFloor(floors, col, row))
                     Some(mkFloorTile(col, row, tileSz, floorOff, floorSc, tileShape))
-                else 
+                else
                     None)
 }

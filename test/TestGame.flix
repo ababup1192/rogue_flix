@@ -10,13 +10,16 @@
 // ヘルパー: テスト用シーンと Game エフェクトハンドラ
 // ========================================================================
 
+/// テスト用フロアセット: 5x5 の部屋 (col=[2,6], row=[2,6])
+def testFloors(): Set[(Int32, Int32)] =
+    List.range(2, 7) |> List.flatMap(row ->
+        List.range(2, 7) |> List.map(col -> (col, row))
+    ) |> List.foldLeft((acc, pos) -> Set.insert(pos, acc), Set.empty())
+
 /// テスト用の初期シーンを構築する。
 /// row, col でプレイヤーのグリッド位置を指定。
 def mkTestState(row: Int32, col: Int32): Game.GameState =
-    {scene = RogueScene.buildInitialScene(
-        Game.gridCols(), Game.gridRows(), col, row,
-        Game.tileSize(), Game.moveSpeed()
-    )}
+    Game.initGameWithFloors(testFloors(), row, col)
 
 /// 1フレーム分の updateGame を実行するヘルパー。
 /// pressedKeys: 押下中のキーコードのリスト（Nil なら全キー未押下）
@@ -132,7 +135,7 @@ def testUpdateGameIgnoresInputWhileMoving(): Unit \ Assert =
 // --- 複数歩移動: Wキー3回で3タイル上に到達 ---
 // 1フレームで移動完了する dt(0.2s) を使い、3フレーム連続でWキーを押す。
 // moveSpeed(192) × dt(0.2) = 38.4 > tileSize(32) なので1フレームで1タイル完走。
-// 開始 row=5 → 1歩 row=4 → 2歩 row=3 → 3歩 row=2（全て Room1 床タイル内）
+// 開始 row=5 → 1歩 row=4 → 2歩 row=3 → 3歩 row=2（全てテスト床タイル内）
 @Test
 def testUpdateGameMultipleSteps(): Unit \ Assert =
     let dt = 0.2f32;
@@ -149,7 +152,7 @@ def testUpdateGameMultipleSteps(): Unit \ Assert =
 // ========================================================================
 
 // --- Wキー: 上方向に壁があり移動できない ---
-// プレイヤーが Room1 の上端 (row=2, col=4) にいるとき、
+// プレイヤーがテスト部屋の上端 (row=2, col=4) にいるとき、
 // Wキーで上方向に移動しようとしても、壁 (row=1, col=4) に阻まれて位置が変わらない。
 @Test
 def testUpdateGameBlockedByWallUp(): Unit \ Assert =

@@ -1,6 +1,8 @@
 // Game module — types, effects, constants, and game logic for rogue
 
 mod Game {
+    import java.lang.System
+
     pub type alias Vec3 = {r = Float32, g = Float32, b = Float32}
 
     pub type alias GameState = {
@@ -24,8 +26,8 @@ mod Game {
     pub def screenWidth(): Int32 = 800
     pub def screenHeight(): Int32 = 600
     pub def tileSize(): Float32 = 32.0f32
-    pub def gridCols(): Int32 = 20
-    pub def gridRows(): Int32 = 18
+    pub def gridCols(): Int32 = 25
+    pub def gridRows(): Int32 = 19
     pub def moveSpeed(): Float32 = 192.0f32
 
     // WASD keys
@@ -53,9 +55,22 @@ mod Game {
     // Game Initialization
     // ========================================================================
 
-    pub def initGame(playerRow: Int32, playerCol: Int32): GameState =
+    pub def initGame(_playerRow: Int32, _playerCol: Int32): GameState \ IO =
+        let seed = System.nanoTime();
+        let floors = Dungeon.generate(gridCols(), gridRows(), seed);
+        let start = Dungeon.playerStartForRooms(gridCols(), gridRows(), seed);
         {
-            scene = RogueScene.buildInitialScene(gridCols(), gridRows(), playerCol, playerRow, tileSize(), moveSpeed())
+            scene = RogueScene.buildInitialScene(
+                gridCols(), gridRows(), start#col, start#row,
+                tileSize(), moveSpeed(), floors)
+        }
+
+    /// Build game state from a pre-built floor set (for tests).
+    pub def initGameWithFloors(floors: Set[(Int32, Int32)], playerRow: Int32, playerCol: Int32): GameState =
+        {
+            scene = RogueScene.buildInitialScene(
+                gridCols(), gridRows(), playerCol, playerRow,
+                tileSize(), moveSpeed(), floors)
         }
 
     // ========================================================================
